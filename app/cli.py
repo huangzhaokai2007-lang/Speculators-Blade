@@ -83,7 +83,6 @@ OFFLINE_RULES: tuple[tuple[tuple[str, ...], str, dict], ...] = (
 _PAYEE_IN_TEXT = re.compile(r"(?:给|向)\s*([\u4e00-\u9fa5A-Za-z]{1,8}?)\s*(?:转|汇|打)")
 _AMOUNT_IN_TEXT = re.compile(r"转\s*(\d+(?:\.\d+)?)")
 
-
 def transfer_slots_from_text(text: str) -> dict:
     """从话里抽转账的 `payee` / `amount`（替身"抽槽位"，真实模型本该做这件事）。
 
@@ -101,6 +100,43 @@ def transfer_slots_from_text(text: str) -> dict:
     if amount:
         out["amount"] = float(amount.group(1))
     return out
+
+
+#: F16 定时转账的离线判定（2026-11-01 用户实测：「定时转账被转账覆盖」）。
+#: 关键词表里原本**没有** `transfer_scheduled`，任何带「转」的话都被 ("转",) 截成即时转账 ——
+#: 说「明天 9 点给王五转 100」出的是立即转账确认卡。判定要**时间词 + 转账动词**同时成立：
+#: 「明天有空吗」不判、只说「给王五转 100」仍是即时转账。
+_TRANSFER_VERB = re.compile(r"转(?:账|钱|款|一下)?|汇(?:款|钱)|打(?:款|钱)")
+_SCHEDULE_HINT = re.compile(
+    r"定时|预约|定期|循环|每[天日周月星礼]|明[天日]|后天|大后天|下周|下星期|下个月|下月初|本月|月底|月末"
+    r"|\d{1,2}\s*[点:：]\s*\d{0,2}|[一二三四五六七八九十]{1,2}\s*[点号日]|\d{4}-\d{1,2}-\d{1,2}")
+#: 循环说法 → 原样交给 `repeat_cycle`（`每个月` 与 `每月` 都要认）
+_CYCLE_WORDS = ("每天", "每日", "每周一", "每周", "每星期", "每礼拜", "每个月", "每月")
+
+
+def scheduled_slots_from_text(text: str) -> dict:
+    """定时转账的槽位（替身用）：收款人/金额沿用即时转账的抽取，另加 `schedule` / `repeat`。
+
+    时间交给 `agent/_relative_time.parse` 归一成 ISO（「明天 9 点」→ 2026-11-02T09:00），
+    认不出就**不填** —— 让编排层按缺失槽位追问，不猜。
+    """
+    import datetime as _dt
+
+    from agent._relative_time import parse as parse_time
+
+    filled = dict(transfer_slots_from_text(text))
+    raw = _strip_date_context(str(text or ""))       # 去掉编排层追加的「（当前日期：…）」
+    when = parse_time(raw, _dt.datetime.now())
+    if when is None:                                  # 「2026-11-20 09:00 给李四转 88」这种整句夹日期
+        found = re.search(r"\d{4}-\d{1,2}-\d{1,2}(?:[ T]\d{1,2}:\d{2})?", raw)
+        when = found.group(0) if found else None      # 已是 ISO，下游 `_iso_schedule` 直接认
+    if when:
+        filled["schedule"] = when
+    for word in _CYCLE_WORDS:
+        if word in raw:
+            filled["repeat"] = word
+            break
+    return filled
 
 
 #: 相对时间词（替身"抽槽位"用；归一化仍由 `agent/period.py` 做，替身不重复判断）
@@ -389,6 +425,13 @@ def offline_verdict(text: str) -> tuple[str, dict]:
     """
     for keywords, intent, slots in OFFLINE_RULES:
         if any(word in text for word in keywords):
+            #: F16：带时间词/循环词的转账 → 定时转账（否则一律被即时转账截走）。
+            #: 判定前必须去掉编排层追加的「（当前日期：2026-09-12）」—— 否则那句话里的日期
+            #: 会让**每一笔**转账都命中时间词，普通转账被误判成定时（本函数第一版就是这么错的）。
+            if (intent == "transfer_single"
+                    and _SCHEDULE_HINT.search(_strip_date_context(text))
+                    and _TRANSFER_VERB.search(_strip_date_context(text))):
+                return "transfer_scheduled", scheduled_slots_from_text(text)
             filled = dict(slots)
             if intent in ("bill_analysis", "anomaly_check", "bill_report"):
                 #: 2026-10-27 验收口径：问「异常分析」却**没说哪个月**时，不许静默按锚点当月算
