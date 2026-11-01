@@ -56,7 +56,9 @@ def main() -> int:
         entry[0].click().run()
         check("风险程度页打开（侧边栏入口）", not at.exception)
     else:
-        at.chat_input[0].set_value("做风险测评").run()
+        #: 用「我的风险等级是多少」而不是「做风险测评」：
+        #: 前者走查询 → 给「开始风险测评」入口卡；后者直接弹表单（少了入口这一步）。
+        at.chat_input[0].set_value("我的风险等级是多少").run()
         check("风险程度页打开（对话入口）", not at.exception)
     next(b for b in at.button if b.label == "开始风险测评").click().run()
     for box in at.selectbox:
