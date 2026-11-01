@@ -5,9 +5,12 @@ from tests.test_card_binding_ui import app, bind, click, CARD
 
 
 def _is_pick(widget) -> bool:
-    """选卡按钮：新版是「选择这张卡」，收款人卡列表里的是「银行名 + 6222 掩码」。"""
-    label = str(getattr(widget, "label", ""))
-    return "6222" in label or "选择这张卡" in label
+    """选卡按钮：只认「收款人的银行卡」（key=pickcard-*）。
+
+    2026-11-01 起同一张卡面上还多了一排「付款卡」按钮（key=fromcard-*），
+    以前按标签里的「6222」/「选择这张卡」匹配会先抓到付款卡，点完不出确认卡。
+    """
+    return str(getattr(widget, "key", "")).startswith("pickcard-")
 
 def test_same_card_shortcut_keeps_existing_detail_and_history(monkeypatch, seeded):
     at = app(monkeypatch, seeded)

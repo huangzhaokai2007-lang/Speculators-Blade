@@ -19,7 +19,7 @@ import datetime
 import re
 from datetime import date
 
-from data.seed import AS_OF, DATA_END
+from data.seed import AS_OF
 
 #: 相对时间的**取值别名表**（口径同 `classifier.SLOT_VALUE_ALIASES`：LLM 填什么都可以，代码说了算）。
 #: 真机实测：模型（温度 0）稳定返回英文 `last_month`，所以这张表不是"以防万一"而是主路径。
@@ -68,25 +68,28 @@ def anchor_period() -> str:
     return month_shift(0)
 
 
-def anchor_month_bounds(offset: int = 0) -> tuple[str, str]:
-    """锚点月（可按 `offset` 前后挪）的首末日（`YYYY-MM-DD`）。
+def previous_month_bounds(ref: date | None = None) -> tuple[str, str]:
+    """`ref`（默认今天）**上一个完整自然月**的首末日（`YYYY-MM-DD`）。
 
-    用途：流水/账单的时间段卡面给默认值 —— 锚点 2026-09-12 的当月只到 12 号，
-    默认取**上一个完整账期**，画出来的走势才有一条完整的月度曲线。
+    2026-11-01（用户要求）：日期可选范围截止到**当天**，但默认值取上一个完整月 ——
+    今天所在的月还没过完，拿它当默认画不出完整的月度走势。
     """
-    period = month_shift(offset)
-    year, month = (int(part) for part in period.split("-"))
-    return f"{period}-01", f"{period}-{calendar.monthrange(year, month)[1]:02d}"
+    anchor = ref or date.today()
+    first_of_this = anchor.replace(day=1)
+    last_of_prev = first_of_this - datetime.timedelta(days=1)
+    first_of_prev = last_of_prev.replace(day=1)
+    return first_of_prev.isoformat(), last_of_prev.isoformat()
 
 
-def data_end() -> date:
-    """合成数据的最后一天（`data.seed.DATA_END`，当前 2026-12-31）。
+def today() -> date:
+    """真实时钟的今天。
 
-    2026-11-01（用户实测）：流水/账单的日期框只有 `max_value=锚点日(2026-09-12)`，
-    于是 10 月之后的日子选不到 —— 但种子其实一直铺到 12 月底。日期上限按**数据边界**给，
-    不按锚点给，也不按真实时钟给（真实时钟 2026-11-01 同样会把 12 月挡掉）。
+    2026-11-01（用户要求）：日期框的可选上限是**当天**，不是数据边界，也不是锚点日。
+    种子铺到 12 月底没关系 —— 未来的日期本来就不该让用户挑（选到未来只会是空结果）。
+    与 `anchor_date()` 的区别：那个是**数据集的今天**（`AS_OF` 2026-09-12），
+    用于「上个月/本月」这类相对说法的口径；这里只用于「最多能选到哪一天」。
     """
-    return DATA_END
+    return date.today()
 
 
 def resolve_period(value: object) -> str | None:

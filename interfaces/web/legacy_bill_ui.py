@@ -36,20 +36,16 @@ def _range_picker(ask) -> None:
     - 起止都限制在**今天及以前**：账单是历史，选到未来没有数据；
     - 选完点「生成账单报告」才交给编排层（界面不算账、不取数）。
     """
-    from agent.period import data_end
-
     today = date.today()
-    #: 上限按**数据边界**（2026-12-31），不按真实时钟 —— 真实时钟 2026-11-01 会把 12 月挡掉。
-    ceiling = max(today, data_end())
     last_month_end = today.replace(day=1) - timedelta(days=1)
     default_start = last_month_end.replace(day=1)          # 默认 = 上个月整月（有数据的那一期）
     st.markdown('##### 选择账单时间段')
-    st.caption('点开小框挑选起止日期，选好后生成报告。可选范围：最早到 2015 年 1 月，最晚到合成数据最后一天（2026-12-31）。')
+    st.caption('点开小框挑选起止日期，选好后生成报告。可选范围：最早到 2015 年 1 月，最晚到**今天**。')
     left, right = st.columns(2)
-    start = left.date_input('开始日期', value=default_start, max_value=ceiling,
+    start = left.date_input('开始日期', value=default_start, max_value=today,
                             min_value=date(2015, 1, 1), format='YYYY-MM-DD',
                             key='bill-range-start')
-    end = right.date_input('结束日期', value=last_month_end, max_value=ceiling,
+    end = right.date_input('结束日期', value=last_month_end, max_value=today,
                            min_value=date(2015, 1, 1), format='YYYY-MM-DD',
                            key='bill-range-end')
     st.caption(f'时间段：{start.year}年{start.month}月{start.day}日 —— '

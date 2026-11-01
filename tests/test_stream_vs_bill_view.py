@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -26,6 +26,15 @@ if str(REPO / "scripts") not in sys.path:
 import demo                                                        # noqa: E402
 
 APP = REPO / "interfaces" / "web" / "app_offline.py"
+
+
+def _last_month() -> tuple[str, str]:
+    """默认时间段：`min(真实今天, 数据集今天)` 的上一个完整月（独立算一遍，防自证）。"""
+    from data.seed import AS_OF
+
+    ref = min(date.today(), AS_OF)
+    last = ref.replace(day=1) - timedelta(days=1)
+    return last.replace(day=1).isoformat(), last.isoformat()
 
 
 def _app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
@@ -55,17 +64,18 @@ def test_stream_asks_for_range_first_then_renders_detail_card(monkeypatch):
     assert any(b.key == "txn-range-go" for b in at.button)
     assert "逐笔明细" not in page, "还没选时间段就把明细画出来了"
 
-    # 默认区间 = 锚点 2026-09-12 的上一个完整账期
-    assert at.date_input(key="txn-range-start").value == date(2026, 8, 1)
-    assert at.date_input(key="txn-range-end").value == date(2026, 8, 31)
+    # 默认区间 = 上一个完整自然月；可选上限 = 今天
+    expect_from, expect_to = _last_month()
+    assert at.date_input(key="txn-range-start").value == date.fromisoformat(expect_from)
+    assert at.date_input(key="txn-range-end").value == date.fromisoformat(expect_to)
 
     at.button(key="txn-range-go").click().run()
     assert not at.exception
 
     turn = _turn(at)
     assert turn["intent"] == "txn_query" and not turn["error_code"]
-    assert turn["facts"]["date_from"] == "2026-08-01"
-    assert turn["facts"]["date_to"] == "2026-08-31"
+    assert turn["facts"]["date_from"] == expect_from
+    assert turn["facts"]["date_to"] == expect_to
 
     page = _page(at)
     assert "逐笔明细" in page, "选完时间段没出流水明细卡"

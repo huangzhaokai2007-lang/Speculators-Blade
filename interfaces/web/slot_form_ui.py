@@ -138,17 +138,18 @@ def _txn_range_picker(executor: ThreadPoolExecutor, session_id: str, item: dict,
     """
     from datetime import date
 
-    from agent.period import anchor_date, anchor_month_bounds, data_end
+    from agent.period import anchor_date, previous_month_bounds, today as real_today
 
     slots = dict(item.get("slots") or {})
-    default_from, default_to = anchor_month_bounds(-1)
+    #: 默认取「数据集今天」与「真实今天」里较早那个的上一个完整月 —— 两种库都保证有数据；
+    #: 可选上限仍是真实今天（种子铺到 12 月底也不让挑未来）。
+    default_from, default_to = previous_month_bounds(min(real_today(), anchor_date()))
     try:
         value_from = date.fromisoformat(str(slots.get("date_from") or default_from))
         value_to = date.fromisoformat(str(slots.get("date_to") or default_to))
     except ValueError:                                   # 槽位里有认不出的日期 → 回到默认
         value_from, value_to = date.fromisoformat(default_from), date.fromisoformat(default_to)
-    #: 上限按**数据边界**（2026-12-31），不按锚点日 —— 否则 10 月以后的日子选不到。
-    ceiling = max(anchor_date(), data_end())
+    ceiling = real_today()
     st.markdown('##### 选择流水时间段')
     st.caption('点开小框挑选起止日期，选好后按这个区间出「按日支出走势 + 逐笔明细」。')
     left, right = st.columns(2)
