@@ -378,7 +378,8 @@ def _chat_page() -> None:
     if (workspace_ui.current() not in ('', 'bills') or
             (not workspace_ui.current() and st.session_state.get('workspace-error'))):
         with st.container(key='current-business'):
-            st.markdown('### 扩展查看' if st.session_state.get('workspace-nav-stack') else '### 当前业务')
+            if workspace_ui.current() != 'cards':
+                st.markdown('### 扩展查看' if st.session_state.get('workspace-nav-stack') else '### 当前业务')
             workspace_ui.panels(_agent_executor(), st.session_state['session_id'], _follow_up,
                                 _render_pending, _render_forms, _render_confirm)
     if (text := st.chat_input("")) and text.strip():
