@@ -49,8 +49,15 @@ def main() -> int:
     check("订阅提醒条存在", any("订阅提醒" in m.value for m in at.markdown))
 
     # ── F10 测评 → 一键进推荐 ────────────────────────────────
-    next(b for b in at.sidebar.button if b.label == "风险程度").click().run()
-    check("风险程度页打开", not at.exception)
+    #: 侧边栏入口随时可能被调整（PR #137 就打算摘掉「风险程度」），
+    #: 所以这里两条路都试：有按钮点按钮，没有就从对话触发 —— 同一个意图、同一条路径。
+    entry = [b for b in at.sidebar.button if b.label == "风险程度"]
+    if entry:
+        entry[0].click().run()
+        check("风险程度页打开（侧边栏入口）", not at.exception)
+    else:
+        at.chat_input[0].set_value("做风险测评").run()
+        check("风险程度页打开（对话入口）", not at.exception)
     next(b for b in at.button if b.label == "开始风险测评").click().run()
     for box in at.selectbox:
         box.set_value(box.options[-1])
