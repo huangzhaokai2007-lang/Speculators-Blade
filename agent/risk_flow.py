@@ -249,6 +249,10 @@ def submit_assessment(answers: Mapping[str, object], *, session_id: str) -> "Tur
     reply, degraded, error_code = _reply(result)
     _audit(trace_id, session_id, "success" if result.ok else "error", error_code,
            {"answers": sorted(answers), "risk_level": result.facts.get("risk_level") if result.ok else None})
+    #: 2026-11-01：**把 facts 一并带回去**。原来只给 reply，界面拿不到 `total_score`，
+    #: 结果卡（分数/等级/可买范围 + 「看看适合我的产品」按钮）渲染不出来 —— 用户做完测评
+    #: 只看到一段文字，没有下一步入口。Turn 本来就有 `facts` 字段，不算新增契约。
     return Turn(trace_id=trace_id, intent=INTENT, confidence=1.0, states=states,
                 tool_calls=[TOOL], reply=reply, degraded=degraded, error_code=error_code,
-                tier=TIER, executed=result.ok)
+                tier=TIER, executed=result.ok,
+                facts=dict(result.facts) if result.ok else {})

@@ -176,6 +176,17 @@ def test_submit_assessment_scores_and_reports(seeded: Path, answers: dict, level
     assert turn.states == ["IDLE", "SLOT_FILL", "PRECHECK", "EXECUTE", "VERIFY_NUMBERS", "REPLY", "AUDIT"]
 
 
+def test_submit_assessment_carries_facts_so_the_ui_can_offer_next_step(
+        seeded: Path) -> None:
+    """提交后 Turn 必须带 facts —— 界面靠 `total_score` 判断「测完了」，
+    才画得出结果卡和「看看适合我的产品」按钮。原来只给 reply，用户做完测评没有下一步。"""
+    turn = orchestrator.submit_assessment(BALANCED, session_id=SESSION)
+    facts = turn.facts or {}
+    assert facts.get("total_score") is not None
+    assert facts.get("risk_level")
+    assert facts.get("buyable_text")
+
+
 def test_submit_assessment_receipt_numbers_come_from_facts(seeded: Path) -> None:
     """红线：回执里的每个数字都能在 facts 里找到，且未降级。"""
     turn = orchestrator.submit_assessment(BALANCED, session_id=SESSION)

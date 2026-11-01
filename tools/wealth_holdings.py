@@ -55,6 +55,49 @@ def _income_facts(amount_cents: int, expected_yield: float, term_days: int,
             "to_maturity_income_yuan": f"{to_maturity:,.2f}"}
 
 
+def _portfolio_series(rows: list[dict]) -> list[list]:
+    """**组合累计收益率曲线**：把各持仓按买入时点加权，合成一条总收益线。
+
+    口径：某月 m 的
+    - 本金 = 所有「买入月 ≤ m」的持仓金额之和；
+    - 市值 = 每只「金额 × 当月净值 ÷ 买入月净值」之和；
+    - 收益率 = (市值 − 本金) ÷ 本金 × 100。
+
+    买入前的月份不计入（那笔钱还没进来），所以早期曲线只反映先买的那只。
+    和单只曲线、顶部合计用的是同一批净值，三者不会打架。
+    """
+    navs: dict[str, dict[str, int]] = {}
+    for row in rows:
+        swing = RISK_SWING.get(row["risk_level"], 0.0)
+        candles = _product_candles(row["product_id"], row["expected_yield"] + swing, -swing)
+        navs[row["product_id"]] = {c["period"]: int(c["close"]) for c in candles}
+
+    if not navs:
+        return []
+    periods = sorted({period for table in navs.values() for period in table})
+    start = min(row["purchase_date"][:7] for row in rows)
+    series: list[list] = []
+    for period in periods:
+        if period < start:
+            continue
+        cost = 0.0
+        value = 0.0
+        for row in rows:
+            entry_month = row["purchase_date"][:7]
+            if entry_month > period:
+                continue                                  # 还没买，不算本金也不算市值
+            table = navs[row["product_id"]]
+            entry_period = max((p for p in table if p <= entry_month), default=None)
+            nav_now = table.get(period)
+            if entry_period is None or not nav_now:
+                continue
+            cost += row["amount"]
+            value += row["amount"] * nav_now / table[entry_period]
+        if cost:
+            series.append([period, round((value - cost) / cost * 100, 2)])
+    return series
+
+
 def _cumulative_facts(product_id: str, amount_cents: int, expected_yield: float,
                        risk_level: str, purchase_date: str) -> dict:
     """**累计收益**：拿买入那天的净值和今天的净值比，再乘本金。
@@ -183,7 +226,9 @@ def list_holdings() -> ToolResult:
              "cum_pct_total": (f"{total_profit / (total / 100) * 100:+.2f}%"
                                if total else "+0.00%"),
              "today_profit_total_yuan": f"{sum(float(i['today_profit_yuan'].replace(',', '')) for i in items):+,.2f}",
-             "as_of": AS_OF.isoformat()}
+             "as_of": AS_OF.isoformat(),
+             #: 组合累计收益率曲线（和单只曲线同源，界面多画一条粗线）
+             "total_series": _portfolio_series(rows)}
     data = {"items": [{key: item[key] for key in FIELDS + ("amount", "amount_yuan")}
                       for item in items],
             "total_count": len(items), "total_amount": total}
