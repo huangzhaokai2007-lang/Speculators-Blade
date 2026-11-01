@@ -368,7 +368,7 @@ def generate(db_path: str | Path = DEFAULT_DB_PATH, *, reset: bool = False,
     `bind_cards=True`：额外把 6 张预设卡预绑到演示用户（`agent_card_binding`），
     让评委第一次打开网页就能在「管卡」看到卡、转账时能选付款卡。默认 False ——
     测试夹具（`seeded` / `demo.build_temp_db`）走共享的 `generate()`，不预绑，
-    以免影响「空绑定 → 绑卡」这条用例基线。
+      以免影响「空绑定 → 绑卡」这条用例基线。命令行入口默认预绑，测试可显式传 --no-bind-cards。
     """
     path = Path(db_path)
     conn = reset_db(path) if reset else init_db(path)
@@ -417,9 +417,14 @@ def generate(db_path: str | Path = DEFAULT_DB_PATH, *, reset: bool = False,
 
 def main(argv: list[str] | None = None) -> int:
     """CLI：`uv run python -m data.seed --reset`。"""
-    parser = argparse.ArgumentParser(prog="python -m data.seed", description="生成 2025-09~2026-09 的合成银行数据")
+    parser = argparse.ArgumentParser(prog="python -m data.seed", description="生成合成银行演示数据，默认预绑6张模拟银行卡")
     parser.add_argument("--reset", action="store_true", help="先清库再生成（覆盖已有数据）")
-    parser.add_argument("--bind-cards", action="store_true", help="额外把 6 张预设卡预绑到演示用户（网页演示用）")
+    cards = parser.add_mutually_exclusive_group()
+    cards.add_argument("--bind-cards", action="store_true", dest="bind_cards",
+                       help="预绑6张模拟银行卡（默认，与网页首次启动一致）")
+    cards.add_argument("--no-bind-cards", action="store_false", dest="bind_cards",
+                       help="不预绑银行卡，仅用于需要空绑定状态的测试")
+    parser.set_defaults(bind_cards=True)
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH), help="库文件路径，默认取环境变量 DB_PATH")
     parser.add_argument("--months", type=int, default=None,
                         help=f"生成多少个账期（默认 {MONTHS}；测试夹具用 13 保持「本月无数据」基线）")
