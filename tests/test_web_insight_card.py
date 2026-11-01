@@ -67,6 +67,8 @@ def _app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
         if "花了多少" in text:
             return schema(intent="bill_analysis", confidence=0.95, missing_slots=[],
                           slots={"period": "上个月"})
+        if "消费账单" in text:                   # 没带时间的账单请求：该先问时间段
+            return schema(intent="bill_analysis", confidence=0.95, missing_slots=[], slots={})
         return schema(intent="out_of_scope", confidence=0.0, slots={}, missing_slots=[])
 
     monkeypatch.setattr(llm, "chat_json", chat_json)

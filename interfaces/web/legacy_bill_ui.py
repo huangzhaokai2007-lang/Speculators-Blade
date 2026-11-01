@@ -1,4 +1,5 @@
 """Original main bill/ledger presentation, retained independently of other scenes."""
+import re
 from datetime import date, timedelta
 
 import streamlit as st
@@ -9,6 +10,35 @@ import interfaces.web.insight_card_ui as insight_card_ui
 
 #: 账单报告「先选时间段再看正文」的会话标记（选过之后才展示报告详情）。
 RANGE_KEY = 'bill-range'
+
+#: 账单域两种意图：都要先选时间段，谁都不许先甩图表（用户 2026-11-01 明确要求）。
+BILL_INTENTS = ('bill_report', 'bill_analysis')
+
+
+def _has_period(turn: dict) -> bool:
+    """这一轮是否已带明确时间（保留给别处用：`facts.period` 是**编排层补的默认值**，判不出来）。"""
+    facts = turn.get('facts') or {}
+    return any(facts.get(key) for key in ('period', 'date_from', 'date_to', 'month'))
+
+
+#: 用户这句话里出现这些字样，就算「自己说了时间」，不必再问时间段。
+_TIME_HINT = re.compile(
+    r'(上个月|上月|下个月|本月|这个月|当月|上个季度|上季度|季度|今年|去年|前年|明年|'
+    r'最近|近\s*\d+\s*(?:天|周|月|年)|这周|本周|上周|今天|昨天|前天|'
+    r'\d{4}\s*年|\d{1,2}\s*月|\d{1,2}\s*[日号]|[一二三四五六七八九十]{1,3}\s*月|Q[1-4])')
+
+
+def _says_time(text) -> bool:
+    """用户原话里有没有时间信息。
+
+    为什么不用 `turn.facts.period`：编排层会把缺的 period 补成锚点月（2026-09），
+    回执里于是永远有 period —— 拿它判断「用户说了没有」会把每一句都判成「说了」。
+    """
+    raw = str(text or '')
+    if _TIME_HINT.search(raw):
+        return True
+    from agent import period
+    return bool(period.resolve_period(raw) or period.resolve_day(raw, edge='start'))
 
 #: 这些意图的页面上不挂「选择账单时间段」：流水/异常都有自己的区间口径，挂上去就是把两件事混一起。
 NON_BILL_PICKER_INTENTS = ('txn_query', 'anomaly_check')
@@ -62,9 +92,13 @@ def _range_picker(ask) -> None:
 
 
 def _without_reports(messages) -> list[dict]:
-    """还没选时间段时，报告正文先不展示（其余对话照旧）。"""
+    """还没选时间段时，账单类回执（报告 + 分析图表）先都不展示（其余对话照旧）。
+
+    2026-11-01（用户实测）：说「我想看看我的消费账单」先弹了饼图和「接着问」，
+    时间段选择被挤到页面最下面 —— 不符合「第一步一定是先选时间段」。
+    """
     return [message for message in messages
-            if (message.get('turn') or {}).get('intent') != 'bill_report']
+            if (message.get('turn') or {}).get('intent') not in BILL_INTENTS]
 
 
 def _latest_report(messages) -> dict | None:
@@ -115,13 +149,28 @@ def render(messages, executor, session: str, ask, *, readonly: bool = False) -> 
     show_bill_range = latest_intent not in NON_BILL_PICKER_INTENTS
     #: Comment 14：说完「看账单」后**不要**先甩出上个月的报告 —— 时间段选择直接贴在那句
     #: 话下面，选完点「生成账单报告」才出对应期间的正文（其余内容这一轮都不画）。
-    waiting = (not readonly and (st.session_state.get('workspace-result') or {}).get('turn', {}).get('intent') == 'bill_report'
-               and st.session_state.get(RANGE_KEY) is None)
-    if waiting:
+    #: 2026-11-01：`bill_analysis`（「我想看看我的消费账单」）同办 —— 先选时间段，别先出饼图。
+    turn = (st.session_state.get('workspace-result') or {}).get('turn') or {}
+    if not turn:      # 手打字进来的这一轮没有 workspace-result，按消息流里最近一条回执判
+        turn = next((m.get('turn') for m in reversed(messages) if m.get('turn')), None) or {}
+    #: 用户**原话**里没提时间（也没说「上个月」这类）→ 先问时间段，别先算一个默认月甩出来。
+    #: - `bill_report`：本来就要报告，说没说时间都先选区间（既有流程，别动）；
+    #: - `bill_analysis`：说了时间（「八月账单」「上个月花了多少」）就直接算，没提才问。
+    #: - 只有**没提时间**的新请求才清掉上次选的区间；否则「生成账单报告」那一步会被自己清掉。
+    said = next((m.get('text') for m in reversed(messages) if m.get('role') == 'user'), '')
+    intent = turn.get('intent')
+    mentioned = _says_time(said)
+    fresh_bill_ask = (intent == 'bill_report' or (intent == 'bill_analysis' and not mentioned))
+    if fresh_bill_ask and not mentioned:
+        st.session_state.pop(RANGE_KEY, None)      # 新的一轮账单请求：重新从选时间段开始
+    awaiting = fresh_bill_ask and st.session_state.get(RANGE_KEY) is None
+    if awaiting:
+        # 只画到用户那句话为止：报告/分析图/接着问一律不画（只读的「原页面」框里也一样）
         _transcript(_without_reports(messages[:_last_user_index(messages) + 1]), executor, session, ask,
                     readonly=readonly)
-        _range_picker(ask)
-        st.caption('选好时间段后，这里显示对应期间的账单报告。')
+        if not readonly:
+            _range_picker(ask)
+            st.caption('选好时间段后，这里显示对应期间的账单报告。')
         return
     latest_report = next((i for i in range(len(messages) - 1, -1, -1)
                           if (messages[i].get('turn') or {}).get('intent') == 'bill_report'), -1)
