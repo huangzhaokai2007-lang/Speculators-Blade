@@ -87,8 +87,24 @@ def _card_picker(executor: ThreadPoolExecutor, session_id: str, item: dict,
 
     slots = dict(item.get("slots") or {})
     payee_id = str(slots.get("payee_id") or "")
+    #: 2026-11-01（用户实测「这边王五没有银行卡」）：分类器只给得出**收款人姓名**（`payee`），
+    #: 没给 `payee_id`；这张卡面直接拿空 id 去查，就一律显示「还没有登记银行卡」——
+    #: 可库里王五明明有 3 张卡。这里补一步「名字 → payee_id」，只有唯一命中才用（同名不猜）。
+    name = str(slots.get("payee_name") or slots.get("payee") or "")
+    if not payee_id and name:
+        from agent import payee_resolve
+        try:
+            matches, _reason = payee_resolve._match(name, payee_resolve._people())
+        except Exception:                                   # noqa: BLE001 —— 解析失败就走原来的空卡提示
+            matches = []
+        if len(matches) == 1:
+            payee_id = str(matches[0].get("payee_id") or matches[0].get("id") or "")
+            slots["payee_id"] = payee_id
+    if not name and payee_id:
+        from agent import payee_resolve
+        name = next((str(p.get("name")) for p in payee_resolve._people()
+                     if str(p.get("payee_id") or p.get("id")) == payee_id), "")
     cards = executor.submit(payee_card_flow.cards_of, payee_id).result()
-    name = str(slots.get("payee_name") or "")
     st.markdown(bank_brand.style_css(), unsafe_allow_html=True)
     with st.container(border=True, key="payee-card-picker"):
         #: 2026-11-01（用户要求）：收款人银行卡选项**上方**先给「付款卡」——从我的哪张卡转出。

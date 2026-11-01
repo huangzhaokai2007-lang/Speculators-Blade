@@ -30,8 +30,12 @@ SCHEDULE_MIN_AHEAD = datetime.timedelta(minutes=5)
 SCHEDULE_MAX_AHEAD = datetime.timedelta(days=365)
 
 #: 预约时间认不出时的追问（纯措辞，不含业务数字）。相对说法已支持（见 `_relative_time`）。
-SCHEDULE_CLARIFY = ("请说明预约时间，格式如 2026-10-21 09:00（也接受 2026-10-21），"
-                    "或直接说「明天」「下周一」「下个月 5 号」「月底」这类说法。")
+#: 2026-11-01：示例日期原来写死 `2026-10-21`，过了那天就成了「举一个过去的例子」——
+#: 改成按演示时钟算的**明天 09:00**，永远是个合法样例。
+def schedule_clarify() -> str:
+    tomorrow = (transfer._now() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    return (f"请说明预约时间，格式如 {tomorrow} 09:00（也接受 {tomorrow}），"
+            "或直接说「明天」「下周一」「下个月 5 号」「月底」这类说法。")
 
 
 def _iso_schedule(value: object) -> str | None:
@@ -132,7 +136,7 @@ def _shape_scheduled(slots: Mapping) -> ShapeResult:
         filled["schedule"] = when
     if cycle:
         filled["repeat_cycle"] = cycle
-    clarify = shaped.clarify or (SCHEDULE_CLARIFY if "schedule" in missing else "")
+    clarify = shaped.clarify or (schedule_clarify() if "schedule" in missing else "")
     return ShapeResult(filled=filled, missing=missing, clarify=clarify)
 
 

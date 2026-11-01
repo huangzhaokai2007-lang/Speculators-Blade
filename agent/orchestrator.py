@@ -232,8 +232,17 @@ def _handle(text: str, *, history: list[str] | None = None, clarify_round: int =
     corrected = classifier.correct_misroute(text, verdict.intent)   # 明显误判 → 纠正
     if corrected is not None:
         verdict = corrected
+    #: 2026-11-01：模型**判不出来**（out_of_scope）而这句整好就是一个功能名（「流水」「定时转账」）
+    #: → 规则层兜底认下来。放在这里而不是前面，是为了不抢模型已经判对的那条路（它会顺手抽槽位）。
+    if verdict.intent == "out_of_scope" and (feature := conversation_language.feature_intent(text)):
+        verdict = classifier.IntentOut(intent=feature, confidence=1, slots={})
     #: 2026-10-27：追问后的这一句按分类结果合并回原意图（详见 `pending_slots.resume`）。
     previous_pending = pending_slots.peek(ctx.session_id)
+    #: 2026-11-01（用户实测：明确说「月底给王五转账1000元」却被回「暂时没能确认您的需求」）：
+    #: 追问额度（2 轮）是按**会话**记的，前几轮问完了，换成一个完整的新请求也照样被拒。
+    #: 意图换了就说明用户在说另一件事 —— 额度重新计。
+    if previous_pending and verdict.intent and verdict.intent != previous_pending.get("intent"):
+        ctx.clarify_round = 0
     verdict = pending_slots.read_answer(ctx.session_id, verdict) or verdict
     if (answered := pending_slots.resume(ctx.session_id, text, verdict,
                                          trace_id=ctx.trace_id)) is not None:
