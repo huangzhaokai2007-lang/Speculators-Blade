@@ -100,8 +100,8 @@ def _transcript(messages, executor, session: str, ask, *, readonly: bool) -> Non
     components.transcript(messages, compact=True, legacy_bills=True,
         insight_card=lambda turn, key: insight_card_ui.render(turn,
             key='origin-' + key if readonly else key, on_ask=ask, readonly=readonly),
-        bill_details=None if readonly else lambda source, category: executor.submit(
-            bill_detail_flow.load, session, source, category).result())
+        bill_details=None if readonly else lambda source, category, direction='expense': executor.submit(
+            bill_detail_flow.load, session, source, category, *([direction] if direction == 'income' else [])).result())
 
 
 def render(messages, executor, session: str, ask, *, readonly: bool = False) -> None:

@@ -18,17 +18,19 @@ _JS = Path(__file__).with_suffix('.js').read_text(encoding='utf-8')
 def _selection(widget: str, turn: dict, loader: Callable | None) -> tuple[str | None, dict | None]:
     selection = st.session_state.get(widget, {}).get('selected')
     selected = selection.get('category') if isinstance(selection, dict) else selection
-    if selected not in [group.get('key') for group in turn['facts']['groups']]:
+    direction = selection.get('direction', 'expense') if isinstance(selection, dict) else 'expense'
+    groups = turn['facts'].get('income_groups' if direction == 'income' else 'groups', [])
+    if direction not in ('expense', 'income') or selected not in [group.get('key') for group in groups]:
         st.session_state.pop(widget + '-detail', None)
         return None, None
     cache_key = widget + '-detail'
     cached = st.session_state.get(cache_key) or {}
-    if loader is not None and cached.get('category') != selected:
+    if loader is not None and (cached.get('category'), cached.get('direction', 'expense')) != (selected, direction):
         try:
-            detail = loader(turn, selected)
+            detail = loader(turn, selected, direction) if direction == 'income' else loader(turn, selected)
         except Exception:
             detail = {'ok': False, 'message': '暂时无法读取明细，请收起后重新选择。'}
-        cached = {'category': selected, 'detail': detail}
+        cached = {'category': selected, 'direction': direction, 'detail': detail}
         st.session_state[cache_key] = cached
     return selected, cached.get('detail')
 
@@ -44,7 +46,7 @@ def render_reply(text: str, turn: dict, *, key: str, animate: bool,
     facts = turn.get('facts') or {}
     groups = facts.get('groups') or []
     if (turn.get('intent') not in ('bill_analysis', 'bill_report') or turn.get('error_code')
-            or not groups or not (table := _TABLE.search(text))):
+            or not (groups or facts.get('income_groups')) or not (table := _TABLE.search(text))):
         return False
     before, after = text[:table.start()].strip(), text[table.end():].strip()
     if before:
@@ -59,7 +61,7 @@ def render_reply(text: str, turn: dict, *, key: str, animate: bool,
         css=_CSS, js=_JS, isolate_styles=False)
     pie(key=widget, default={'selected': None}, on_selected_change=lambda: None,
         data={'groups': groups, 'animation_id': identity, 'period': facts.get('period'),
-              'selected': selected, 'detail': detail,
+              'selected': selected, 'direction': focus.get('direction', 'expense'), 'detail': detail,
               'focus_target': focus.get('focus_target'), 'focus_id': focus.get('focus_id'),
               'total': facts.get('total_yuan') or facts.get('out_sum_yuan'),
               'income_groups': facts.get('income_groups') or [],

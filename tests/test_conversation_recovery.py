@@ -189,3 +189,26 @@ def test_end_date_answer_preserves_already_supplied_start(seeded, monkeypatch):
     turn = orchestrator.handle('2026年8月15日', session_id=sid, intent_resolver=verdict('smalltalk'))
     assert not turn.error_code and not turn.ask
     assert calls[0]['date_from'] == '2026-08-01' and calls[0]['date_to'] == '2026-08-15'
+
+@pytest.mark.parametrize('text', ['转钱', '我要转钱', '帮我转钱吧', '打钱', '我要汇款'])
+def test_transfer_synonyms_collect_missing_details(seeded, text):
+    turn = orchestrator.handle(text, session_id='synonym-' + text,
+                               intent_resolver=verdict('out_of_scope'))
+    assert turn.intent == 'transfer_single'
+    assert set(turn.missing_slots) == {'payee', 'amount'}
+    assert not turn.executed and not turn.tool_calls
+
+
+@pytest.mark.parametrize('text', ['帮我给王五转钱100块', '给王五打钱100元', '向王五汇款100元'])
+def test_transfer_synonyms_with_details_only_preview(seeded, text):
+    turn = orchestrator.handle(text, session_id='synonym-details-' + text,
+                               intent_resolver=verdict('out_of_scope'))
+    assert turn.intent == 'transfer_single'
+    assert 'CONFIRM_CARD' in turn.states and not turn.executed
+
+
+@pytest.mark.parametrize('text', ['不要转钱', '怎么转钱', '转钱是什么意思', '明天给王五转钱100元',
+                                 '赚钱', '帮我赚钱', '取消转钱', '给王五不要转钱100元', '给王五明天转钱100元'])
+def test_transfer_synonyms_do_not_override_other_meanings(text):
+    from agent.conversation_language import colloquial
+    assert colloquial(text) is None

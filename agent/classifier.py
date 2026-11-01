@@ -182,6 +182,9 @@ SYSTEM_PROMPT = (
     '"missing_slots": [...], "unsafe_reason": null 或字符串}\n'
     "规则：unsafe_reason 仅当 intent=unsafe_request 时填写；信息不足时把缺的键名放进 missing_slots。\n"
     "枚举槽位：account_type 只能填 savings 或 credit（存成这两个英文值，不要填中文）。\n"
+    "转账口语同义词：「转钱」「打钱」「汇款」「给某人打款」与「转账」同义；"
+    "缺收款人或金额时仍判 transfer_single，并将缺项填入 missing_slots，不编造收款人或金额。"
+    "有未来时间则判 transfer_scheduled；否定、取消、询问操作方法和「赚钱」不能仅凭相近字词判成转账。\n"
     "payee_add（加收款人）的触发说法：「加收款人」「添加收款人」「新增收款人」「加个联系人」「加个好友」等；"
     "用户只要表达出\"想加一个人\"就判 payee_add —— 姓名/手机号没给也没关系，界面会弹表单收集，"
     "**不要**把它们塞进 missing_slots 去追问。\n"

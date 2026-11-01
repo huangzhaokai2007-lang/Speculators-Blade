@@ -224,7 +224,7 @@ def panels(executor, session: str, ask, pending, forms, confirmation) -> None:
     if st.session_state.get('workspace-error') and st.session_state.get('workspace-nav-stack'):
         return
     result(executor, session, ask,
-           lambda source, category: executor.submit(bill_detail_flow.load, session, source, category).result())
+           lambda source, category, direction='expense': executor.submit(bill_detail_flow.load, session, source, category, *([direction] if direction == 'income' else [])).result())
     if st.session_state.pop('workspace-scope-updated', False):
         st.rerun()
     activity_ui.render(st.session_state['turns'])

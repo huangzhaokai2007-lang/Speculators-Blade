@@ -34,10 +34,15 @@ def colloquial(text: str) -> classifier.IntentOut | None:
     """Only handle a whole, unambiguous utterance after contextual reference resolution."""
     raw = str(text or '').strip().rstrip('。？！?!').strip()
     intent, slots = '', {}
-    transfer = re.fullmatch(r'(?:麻烦|帮我)?(?:给|向)([^，,。！？!?\s]{1,20}?)\s*(?:转账|转|打)\s*(\d+(?:\.\d{1,2})?)\s*(?:元|块钱|块)(?:吧|呗)?', raw)
-    informal = re.search(r'^(?:麻烦|帮我)|打\s*\d|块|呗$', raw)
+    # Leave negation, questions and scheduling to the contextual/model classifier.
+    if re.search(r'不要|不想|别|取消|怎么|如何|能否|可不可以|明天|后天|下周|下月|月底|定时|预约|每[天周月年]|\d+[年月日号点:]|[一二三四五六七八九十]+[点月日号]', raw):
+        return None
+    transfer = re.fullmatch(r'(?:麻烦|帮我)?(?:给|向)([^，,。！？!?\s]{1,20}?)\s*(?:转账|转钱|打钱|汇款|转|打)\s*(\d+(?:\.\d{1,2})?)\s*(?:元|块钱|块)(?:吧|呗)?', raw)
+    informal = re.search(r'^(?:麻烦|帮我)|转钱|打钱|汇款|打\s*\d|块|呗$', raw)
     if transfer and informal and transfer[1] not in ('他', '她', '它', '这位', '这个人', '那个人', '对方') and not transfer[1].startswith('第'):
         intent, slots = 'transfer_single', {'payee': transfer[1], 'amount': transfer[2]}
+    if not intent and re.fullmatch(r'(?:麻烦|帮我|我要|我想|我想要)?\s*(?:转账|转钱|打钱|汇款)(?:吧|呗)?', raw):
+        intent = 'transfer_single'
     if not intent and raw in ('帮我瞅瞅还剩多少钱', '我卡里还有多少啊', '查下余额呗',
                                '瞅瞅余额', '还有多少余额', '查下余额', '余额还有多少'):
         intent = 'balance_query'
