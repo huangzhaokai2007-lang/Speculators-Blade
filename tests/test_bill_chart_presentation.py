@@ -108,3 +108,37 @@ def test_pie_selection_loads_details_without_appending_chat_and_caches_redraw(mo
     payload = json.loads(pie.proto.json)
     assert payload['selected'] == '餐饮' and payload['focus_target'] == 'ledger'
     assert payload['focus_id'] == 'kbd-1'
+
+
+def test_income_pie_loads_positive_details_and_caches_direction_separately(monkeypatch):
+    at = _app(monkeypatch)
+    at.session_state['bill-range'] = ('2026-08-01', '2026-08-31')
+    at.chat_input[0].set_value('上个月的账单总结').run()
+    messages = list(at.session_state['messages'])
+    turn = messages[-1]['turn']
+    key = f"pie-{len(messages) - 1}:{turn['trace_id']}"
+    def payload():
+        pie = next(e for e in at.get('bidi_component') if e.proto.component_name.endswith('spending_pie'))
+        return json.loads(pie.proto.json)
+    # Same category exists on both sides; switching must reload the correct sign.
+    at.session_state[key] = {'selected': '转账'}
+    at.run()
+    expense = payload()
+    assert expense['detail']['items']
+    assert all(r['amount'] < 0 for r in expense['detail']['items'])
+    at.session_state[key] = {'selected': {'category': '转账', 'direction': 'income',
+                                         'focus_target': 'ledger', 'focus_id': 'income-kbd'}}
+    at.run()
+    assert not at.exception
+    income = payload()
+    assert income['direction'] == 'income' and income['selected'] == '转账'
+    assert income['detail']['items'] and all(r['amount'] > 0 for r in income['detail']['items'])
+    trace = income['detail']['trace_id']
+    # AppTest does not execute v2 component JS; resend its browser-owned selection.
+    at.session_state[key] = {'selected': {'category': '转账', 'direction': 'income'}}
+    at.run()
+    assert payload()['detail']['trace_id'] == trace
+    assert at.session_state['messages'] == messages
+    at.session_state[key] = {'selected': None}
+    at.run()
+    assert payload()['selected'] is None and payload()['detail'] is None

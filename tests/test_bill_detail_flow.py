@@ -84,3 +84,23 @@ def test_month_end_is_included_and_next_month_is_excluded(seeded):
 @pytest.mark.parametrize('period', [None, '2026-13', '2026-08 OR 1=1'])
 def test_invalid_period_is_rejected(seeded, period):
     assert not bill_detail_flow.load('bad-period', source(period), '电商')['ok']
+
+
+def test_income_detail_keeps_period_direction_and_ownership(foreign):
+    bill = source(category='转账')
+    bill['facts']['income_groups'] = [{'key': '转账'}]
+    result = bill_detail_flow.load('income-detail', bill, '转账', direction='income')
+    expected = raw(foreign, "SELECT t.id,t.amount FROM txn t JOIN account a ON a.id=t.account_id "
+                   "WHERE a.user_id='u_zhangsan_0001' AND t.ts>='2026-08-01' AND t.ts<'2026-09-01' "
+                   "AND t.category='转账' AND t.amount>0 ORDER BY t.ts DESC,t.id DESC")
+    assert result['ok'] and expected
+    assert [r['id'] for r in result['items']] == [r['id'] for r in expected]
+    assert result['amount'] == sum(r['amount'] for r in expected)
+    assert all(r['amount'] > 0 for r in result['items'])
+    audit = raw(foreign, 'SELECT params_json FROM audit_log WHERE trace_id=?', (result['trace_id'],))
+    assert 'income' in audit[0]['params_json']
+
+
+@pytest.mark.parametrize('direction', ['income', 'invalid'])
+def test_income_selection_must_belong_to_the_requested_chart(seeded, direction):
+    assert not bill_detail_flow.load('bad-income', source(), '电商', direction=direction)['ok']

@@ -288,14 +288,14 @@ def _profit_chart(items: list[Mapping[str, Any]],
     rows = [{"月份": period, "产品": str(item.get("name")), "收益率": pct}
             for item in items for period, pct in (item.get("cum_series") or [])]
     if total_series:
-        rows += [{"月份": period, "产品": "组合", "收益率": pct} for period, pct in total_series]
+        rows += [{"月份": period, "产品": "总计", "收益率": pct} for period, pct in total_series]
     if not rows:
         return
 
     names = [str(item.get("name")) for item in items]
     #: 高饱和但互不混淆；组合线单独用深藏蓝压住全场
     palette = ["#E8590C", "#7048E8", "#0CA678", "#1971C2", "#D6336C", "#C92A2A"]
-    scale = alt.Scale(domain=names + ["组合"],
+    scale = alt.Scale(domain=names + ["总计"],
                       range=[palette[i % len(palette)] for i in range(len(names))] + ["#0E3F8C"])
 
     frame = pd.DataFrame(rows)
@@ -318,7 +318,7 @@ def _profit_chart(items: list[Mapping[str, Any]],
                                           symbolSize=160, symbolStrokeWidth=3,
                                           labelFontWeight="bold")),
         #: 组合线更粗，单只线也提到 2.2（原来 1.4 太细）
-        strokeWidth=alt.condition(alt.datum.产品 == "组合", alt.value(3.6), alt.value(2.2)),
+        strokeWidth=alt.condition(alt.datum.产品 == "总计", alt.value(3.6), alt.value(2.2)),
         tooltip=[alt.Tooltip("月份:N"), alt.Tooltip("产品:N"),
                  alt.Tooltip("收益率:Q", format="+.2f")])
     points = base.mark_point(size=42, filled=True).encode(

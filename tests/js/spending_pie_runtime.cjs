@@ -119,3 +119,27 @@ assert(walk(root).some(node => node.textContent === '该分类在此账期暂无
 mount({ ...data, selected: '电商', detail: { ok: false, message: '查询暂不可用' } });
 assert(walk(root).some(node => node.textContent === '查询暂不可用'));
 console.log('spending pie lifecycle, safe labels, hover, and edge cases passed');
+const both = { ...data, animation_id: 'income-test', groups: [{ key: '转账', amount_yuan: '10.00', pct: 100 }],
+  income_groups: [{ key: '工资', amount_yuan: '100.00', pct: 90 }, { key: '转账', amount_yuan: '11.00', pct: 10 }], income_total: '111.00' };
+mount(both);
+let incomeLegend = byClass(root, 'bank-pie-legend')[1];
+assert.equal(incomeLegend.children[0].attrs['aria-label'], '查看工资收入明细');
+incomeLegend.children[0].onpointerenter();
+assert(byClass(root, 'bank-pie-slice').at(-1).className.includes('is-muted'));
+incomeLegend.children[1].onclick();
+assert.equal(events.at(-1).value.category, '转账');
+assert.equal(events.at(-1).value.direction, 'income');
+mount({ ...both, selected: '转账', direction: 'income', detail: { ok: true, count: 1, amount_yuan: '11.00', items: [detail.items[0]] } });
+assert(walk(root).some(n => n.textContent === '转账 · 收入明细'));
+assert.equal(byClass(root, 'bank-pie-slice')[0].attrs['aria-pressed'], 'false', 'income transfer must not select expense transfer');
+assert.equal(byClass(root, 'bank-pie-slice').at(-1).attrs['aria-pressed'], 'true');
+byClass(root, 'bank-pie-legend')[1].children[1].onclick();
+assert.equal(events.at(-1).value, null, 'income selection toggles closed');
+mount({ ...both, groups: [], total: '0.00' });
+assert.equal(byClass(root, 'bank-pie-legend').length, 1, 'income-only periods still offer drilldown');
+console.log('income pie hover, drilldown, direction isolation and income-only periods passed');
+
+mount({ ...both, selected: '工资', direction: 'income', detail });
+assert(byClass(root, 'bank-pie-ledger')[0].className.includes('is-opening'));
+mount({ ...both, selected: '工资', direction: 'income', detail });
+assert(!byClass(root, 'bank-pie-ledger')[0].className.includes('is-opening'), 'ordinary redraw must not replay ledger entrance');
