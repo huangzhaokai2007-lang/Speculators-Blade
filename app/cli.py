@@ -139,6 +139,55 @@ def scheduled_slots_from_text(text: str) -> dict:
     return filled
 
 
+#: 理财申购/赎回的离线口径（2026-11-01 用户实测：「点订购没反应」）。
+#: 理财卡上的「订购」按钮发的是「买 黄金 ETF 联接 10000 元」这种话，而关键词表里
+#: 只有 ("理财", "推荐") → wealth_recommend，于是这句被判成 out_of_scope，界面上看起来
+#: 就是**按钮点了没反应**（只多一条「没太理解您的意思」）。
+_WEALTH_VERBS = {"wealth_buy": ("申购", "认购", "购买", "买入", "买"),
+                 "wealth_redeem": ("赎回", "卖出", "取出来")}
+
+
+def _wealth_intent_from_text(text: str) -> str | None:
+    """这句话是在**申购/赎回**，还是只是在问理财？认不出 → None（交给后面的关键词表）。"""
+    stripped = str(text or "").strip()
+    if any(word in stripped for word in _WEALTH_VERBS["wealth_redeem"]):
+        return "wealth_redeem"
+    if any(word in stripped for word in ("申购", "认购", "购买", "买入")):
+        return "wealth_buy"
+    #: 「买 <产品> <金额> 元」：动词必须在**句首**（「我买了哪些理财」不算），且带数字
+    if re.match(r"^(?:帮我|我要|我想|请)?\s*买", stripped) and re.search(r"\d", stripped):
+        return "wealth_buy"
+    return None
+
+
+def wealth_slots_from_text(text: str, intent: str) -> dict:
+    """抽理财的 `product` / `amount`：名称在动词之后、金额取「N 元」或最后一个数字。"""
+    raw = _strip_date_context(str(text or ""))
+    body = raw
+    for verb in _WEALTH_VERBS.get(intent, ()):               # 去掉动词及其之前的话
+        at = body.find(verb)
+        if at >= 0:
+            body = body[at + len(verb):]
+            break
+    body = body.strip(" 　，,。:：")
+    out: dict = {}
+    #: 金额优先认「N 元 / N 块 / N 万」（产品名里常带「365 天」这类数字，不能抢先）；
+    #: 没有单位就取**最后一个**数字 —— 「红利优选 365 天 10000」也不会认成 365。
+    money = re.search(r"(\d+(?:\.\d+)?)\s*(万)?\s*(?:元|块钱|块)", body)
+    if money is None:
+        found = list(re.finditer(r"(\d+(?:\.\d+)?)\s*(万)?", body))
+        money = found[-1] if found else None
+    product = body
+    if money is not None:
+        product = body[:money.start()]
+        amount = float(money.group(1)) * (10_000 if (money.re.groups >= 2 and money.group(2)) else 1)
+        out["amount"] = amount
+    product = re.sub(r"\s*\d+\s*(?:天|个月|年)\s*$", "", product).strip(" 　，,。:：")
+    if product:
+        out["product"] = product
+    return out
+
+
 #: 相对时间词（替身"抽槽位"用；归一化仍由 `agent/period.py` 做，替身不重复判断）
 PERIOD_WORDS = ("上个月", "上月", "本月", "这个月", "上上个月")
 
@@ -423,6 +472,12 @@ def offline_verdict(text: str) -> tuple[str, dict]:
     抽出来的词会不会解析成账期，仍由 `agent/period.py` 决定：认不出的相对说法 → 编排层
     CLARIFY 追问，**不猜**（如替身会给出而 period 认不出的「上上个月」）。
     """
+    #: F12/F13：理财卡「订购」按钮发的是「买 黄金 ETF 联接 10000 元」—— 句子里没有
+    #: 「理财/推荐」，原来落到 out_of_scope，界面上就是**点了没反应**。
+    #: 只认「动词打头 + 带金额」，避免「我买了哪些理财」这类查询被抢走。
+    wealth = _wealth_intent_from_text(_strip_date_context(text))
+    if wealth is not None:
+        return wealth, wealth_slots_from_text(text, wealth)
     for keywords, intent, slots in OFFLINE_RULES:
         if any(word in text for word in keywords):
             #: F16：带时间词/循环词的转账 → 定时转账（否则一律被即时转账截走）。
