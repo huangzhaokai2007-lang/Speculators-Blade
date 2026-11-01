@@ -128,6 +128,45 @@ def _card_picker(executor: ThreadPoolExecutor, session_id: str, item: dict,
             st.caption("同时还需要：" + "、".join(_label(slot) for slot in other_missing))
 
 
+def _txn_range_picker(executor: ThreadPoolExecutor, session_id: str, item: dict,
+                      other_missing: list[str]) -> None:
+    """「选择流水时间段」卡面（2026-11-01 用户要求）。
+
+    说「看看我的流水」但没给时间时，**先挑时间段**，选完才出逐笔明细与按日走势 ——
+    与账单报告那张时间段卡同一手感，但标题/按钮都写「流水」，不再挂账单的入口。
+    日期默认上一个完整账期（锚点 2026-09-12 的当月只到 12 号，画不出一个月的走势）。
+    """
+    from datetime import date
+
+    from agent.period import anchor_date, anchor_month_bounds, data_end
+
+    slots = dict(item.get("slots") or {})
+    default_from, default_to = anchor_month_bounds(-1)
+    try:
+        value_from = date.fromisoformat(str(slots.get("date_from") or default_from))
+        value_to = date.fromisoformat(str(slots.get("date_to") or default_to))
+    except ValueError:                                   # 槽位里有认不出的日期 → 回到默认
+        value_from, value_to = date.fromisoformat(default_from), date.fromisoformat(default_to)
+    #: 上限按**数据边界**（2026-12-31），不按锚点日 —— 否则 10 月以后的日子选不到。
+    ceiling = max(anchor_date(), data_end())
+    st.markdown('##### 选择流水时间段')
+    st.caption('点开小框挑选起止日期，选好后按这个区间出「按日支出走势 + 逐笔明细」。')
+    left, right = st.columns(2)
+    start = left.date_input('开始日期', value=value_from, max_value=ceiling,
+                            min_value=date(2015, 1, 1), format='YYYY-MM-DD', key='txn-range-start')
+    end = right.date_input('结束日期', value=value_to, max_value=ceiling,
+                           min_value=date(2015, 1, 1), format='YYYY-MM-DD', key='txn-range-end')
+    st.caption(f'时间段：{start.year}年{start.month}月{start.day}日 —— '
+               f'{end.year}年{end.month}月{end.day}日')
+    if st.button('查看这段时间的流水', type='primary', key='txn-range-go', disabled=start > end):
+        if start > end:
+            st.error('开始日期不能晚于结束日期。')
+            return
+        _submit(executor, session_id, item, {'date_from': start.isoformat(), 'date_to': end.isoformat()})
+    if other_missing:
+        st.caption('同时还需要：' + '、'.join(_label(slot) for slot in other_missing))
+
+
 def render(executor: ThreadPoolExecutor, session_id: str) -> None:
     """有未完成的补槽 → 画一张表单卡；没有就不画。"""
     item = executor.submit(pending_slots.peek, session_id).result()
@@ -149,6 +188,12 @@ def render(executor: ThreadPoolExecutor, session_id: str) -> None:
     #: 2026-10-31（用户要求）：缺的是「收款卡」时，不画文本框 —— 直接给**选卡卡面**。
     if "payee_card" in missing:
         _card_picker(executor, session_id, item, [slot for slot in missing if slot != "payee_card"])
+        return
+    #: 2026-11-01（用户要求）：流水缺时间 → 先给**时间段卡面**（标题写「流水」），
+    #: 选完再出走势图＋逐笔明细；不再把日期当两个文本框问「起始日期 / 结束日期」。
+    if item.get("intent") == "txn_query" and {"date_from", "date_to"} & set(missing):
+        _txn_range_picker(executor, session_id, item,
+                          [slot for slot in missing if slot not in ("date_from", "date_to")])
         return
     #: 收款人卡内的转账用**卡内表单**收金额，通用填表卡不重复弹（选卡卡面上面已单独处理）。
     if st.session_state.get("payee-inline-intent"):

@@ -427,7 +427,8 @@ def test_holdings_detail_without_assessment_offers_the_form(seeded: Path,
                                                             monkeypatch) -> None:
     """看持仓详情要先测评；回执只有一句文字时用户找不到入口（实测反馈）→ 必须给按钮。
 
-    路径复现：侧边栏「我的理财」→ 选一只 → 「查看所选详情」→ 未测评 → INVALID_STATE。
+    路径复现：侧边栏「我的理财」→ 说「第 1 个」→ 未测评 → INVALID_STATE。
+    （2026-11-01：「选择项目继续查看」下拉已按用户要求删除，这里改用同一句话触发同一条链路。）
     """
     from streamlit.testing.v1 import AppTest
 
@@ -439,7 +440,7 @@ def test_holdings_detail_without_assessment_offers_the_form(seeded: Path,
                         classifier.IntentOut(intent='wealth_holdings', confidence=1.0, slots={}))
     next(b for b in at.sidebar.button if b.label == "我的理财").click().run()
     assert not at.exception
-    next(b for b in at.button if b.label == "查看所选详情").click().run()
+    at.chat_input[0].set_value("第1个").run()
     assert not at.exception
     assert at.session_state["messages"][-1]["turn"]["error_code"] == "INVALID_STATE"
     assert any(b.label == "开始风险测评" for b in at.button)

@@ -39,29 +39,6 @@ def render(executor, session: str, ask, *, show_scope: bool = True) -> None:
             parts.append(card.get('card_no_mask', ''))
         if parts and show_scope:
             st.caption(' › '.join(parts))
-        _selection(context, ask)
-
-
-def _selection(context: dict, ask) -> None:
-    domain = {'txn_query': 'txn', 'subscription_list': 'subscription',
-              'wealth_holdings': 'product', 'wealth_all_products': 'product'}.get(context.get('intent'))
-    rows = context.get('candidates', {}).get(domain, [])
-    if not rows or (domain == 'txn' and context.get('txn_id')):
-        return
-    labels = [str(row.get('merchant') or row.get('name') or row.get('counterparty') or row.get('id', ''))
-              + (' · ' + str(row['ts']) if row.get('ts') else '') for row in rows]
-    index = st.selectbox('选择项目继续查看', range(len(rows)), format_func=lambda i: labels[i],
-                        key='scene-candidate-' + domain)
-    st.button('查看所选详情', key='scene-select-' + domain,
-              on_click=ask, args=(f'第{index + 1}个',),
-              kwargs={} if domain == 'txn' else
-              {'display': _selection_description(domain, rows[index], labels[index])})
-
-
-def _selection_description(domain: str, row: dict, label: str) -> str:
-    if domain == 'txn':
-        parts = [str(row.get('ts') or '').replace('T', ' '),
-                 str(row.get('counterparty') or row.get('merchant') or '交易'),
-                 str(row['amount_yuan']) + ' 元' if row.get('amount_yuan') is not None else '']
-        return '查看交易：' + ' · '.join(part for part in parts if part)
-    return '查看详情：' + label
+        #: 2026-11-01（用户要求删掉）：这里原本挂一个「选择项目继续查看」下拉 + 「查看所选详情」按钮，
+        #: 和上面的卡片/明细表功能重叠，观感也突兀。需要看某一笔时直接在卡片里点（或说「第 3 笔」）。
+        #: 保留下来的只有上面那行范围面包屑（period › category › 对手方）。

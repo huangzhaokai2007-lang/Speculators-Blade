@@ -123,8 +123,6 @@ def error(ask) -> None:
 
 
 def scope(executor, session: str, ask) -> None:
-    if current() == 'cards':
-        return
     context = executor.submit(scene_flow.context, session).result()
     request = context.get('read_request') or context.get('slots') or {}
     dates = [request[key] for key in ('date_from', 'date_to') if request.get(key)]
@@ -210,6 +208,11 @@ def transcript(messages, executor, session: str, ask) -> None:
         legacy_bill_ui.render(messages, executor, session, ask)
         error(ask)
         scene_ui.render(executor, session, ask)
+        #: 2026-11-01（用户要求「说流水要先给时间段再出走势图」）：bills 场景**不走 `panels()`**，
+        #: 于是补槽卡面（流水时间段 / 收款卡 / 通用填表）在这里没有调用点 —— 说「流水」时
+        #: 只看到一句「请补充起始日期、结束日期」，一个可点的输入都没有。这里补上一次。
+        #: `slot_form_ui` 无待补槽时自己会直接返回，不会和上面的回执重复。
+        slot_form_ui.render(executor, session)
         return
     from interfaces.web import components
     if len(messages) > 4:

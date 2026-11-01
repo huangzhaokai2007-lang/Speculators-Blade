@@ -19,7 +19,7 @@ import datetime
 import re
 from datetime import date
 
-from data.seed import AS_OF
+from data.seed import AS_OF, DATA_END
 
 #: 相对时间的**取值别名表**（口径同 `classifier.SLOT_VALUE_ALIASES`：LLM 填什么都可以，代码说了算）。
 #: 真机实测：模型（温度 0）稳定返回英文 `last_month`，所以这张表不是"以防万一"而是主路径。
@@ -66,6 +66,27 @@ def normalize_relative_period(value: object) -> str | None:
 def anchor_period() -> str:
     """锚点当月：`period` **完全没给**时的缺省口径（卡 09，未变）。"""
     return month_shift(0)
+
+
+def anchor_month_bounds(offset: int = 0) -> tuple[str, str]:
+    """锚点月（可按 `offset` 前后挪）的首末日（`YYYY-MM-DD`）。
+
+    用途：流水/账单的时间段卡面给默认值 —— 锚点 2026-09-12 的当月只到 12 号，
+    默认取**上一个完整账期**，画出来的走势才有一条完整的月度曲线。
+    """
+    period = month_shift(offset)
+    year, month = (int(part) for part in period.split("-"))
+    return f"{period}-01", f"{period}-{calendar.monthrange(year, month)[1]:02d}"
+
+
+def data_end() -> date:
+    """合成数据的最后一天（`data.seed.DATA_END`，当前 2026-12-31）。
+
+    2026-11-01（用户实测）：流水/账单的日期框只有 `max_value=锚点日(2026-09-12)`，
+    于是 10 月之后的日子选不到 —— 但种子其实一直铺到 12 月底。日期上限按**数据边界**给，
+    不按锚点给，也不按真实时钟给（真实时钟 2026-11-01 同样会把 12 月挡掉）。
+    """
+    return DATA_END
 
 
 def resolve_period(value: object) -> str | None:

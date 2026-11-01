@@ -10,6 +10,9 @@ import interfaces.web.insight_card_ui as insight_card_ui
 #: 账单报告「先选时间段再看正文」的会话标记（选过之后才展示报告详情）。
 RANGE_KEY = 'bill-range'
 
+#: 这些意图的页面上不挂「选择账单时间段」：流水/异常都有自己的区间口径，挂上去就是把两件事混一起。
+NON_BILL_PICKER_INTENTS = ('txn_query', 'anomaly_check')
+
 
 def open_picker() -> None:
     st.session_state.pop(RANGE_KEY, None)
@@ -33,16 +36,20 @@ def _range_picker(ask) -> None:
     - 起止都限制在**今天及以前**：账单是历史，选到未来没有数据；
     - 选完点「生成账单报告」才交给编排层（界面不算账、不取数）。
     """
+    from agent.period import data_end
+
     today = date.today()
+    #: 上限按**数据边界**（2026-12-31），不按真实时钟 —— 真实时钟 2026-11-01 会把 12 月挡掉。
+    ceiling = max(today, data_end())
     last_month_end = today.replace(day=1) - timedelta(days=1)
     default_start = last_month_end.replace(day=1)          # 默认 = 上个月整月（有数据的那一期）
     st.markdown('##### 选择账单时间段')
-    st.caption('点开小框挑选起止日期，选好后生成报告。可选范围：最早到 2015 年 1 月，最晚到今天。')
+    st.caption('点开小框挑选起止日期，选好后生成报告。可选范围：最早到 2015 年 1 月，最晚到合成数据最后一天（2026-12-31）。')
     left, right = st.columns(2)
-    start = left.date_input('开始日期', value=default_start, max_value=today,
+    start = left.date_input('开始日期', value=default_start, max_value=ceiling,
                             min_value=date(2015, 1, 1), format='YYYY-MM-DD',
                             key='bill-range-start')
-    end = right.date_input('结束日期', value=last_month_end, max_value=today,
+    end = right.date_input('结束日期', value=last_month_end, max_value=ceiling,
                            min_value=date(2015, 1, 1), format='YYYY-MM-DD',
                            key='bill-range-end')
     st.caption(f'时间段：{start.year}年{start.month}月{start.day}日 —— '
@@ -105,6 +112,11 @@ def _transcript(messages, executor, session: str, ask, *, readonly: bool) -> Non
 
 
 def render(messages, executor, session: str, ask, *, readonly: bool = False) -> None:
+    #: 2026-11-01（用户要求：「提到流水就该出折线图＋逐笔明细，别和账单混」）：
+    #: 最新一轮是流水/异常查询时，页面底部那颗「选择账单时间段」不再出现 ——
+    #: 流水有自己的区间（回执头句里写着），不该被账单报告的入口带偏。
+    latest_intent = _latest_intent(messages)
+    show_bill_range = latest_intent not in NON_BILL_PICKER_INTENTS
     #: Comment 14：说完「看账单」后**不要**先甩出上个月的报告 —— 时间段选择直接贴在那句
     #: 话下面，选完点「生成账单报告」才出对应期间的正文（其余内容这一轮都不画）。
     waiting = (not readonly and (st.session_state.get('workspace-result') or {}).get('turn', {}).get('intent') == 'bill_report'
@@ -122,5 +134,5 @@ def render(messages, executor, session: str, ask, *, readonly: bool = False) -> 
     _transcript(displayed, executor, session, ask, readonly=readonly)
     if not readonly and (report := _latest_report(messages)):
         _subscriptions(report, ask)
-    if not readonly:
+    if not readonly and show_bill_range:
         _range_picker(ask)          # 已选过也留着：随时可以换个时间段重出报告
