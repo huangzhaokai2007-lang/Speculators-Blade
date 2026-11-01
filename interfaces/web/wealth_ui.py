@@ -275,15 +275,28 @@ def _profit_color(value: object, *, on_dark: bool = False) -> str:
     return "#c9d8f0" if on_dark else "#94a3b8"
 
 
-def _profit_chart(items: list[Mapping[str, Any]]) -> None:
-    """各持仓的**累计收益率曲线**（%）：横轴月份，纵轴收益率，0% 处一条基准线。"""
+def _profit_chart(items: list[Mapping[str, Any]],
+                  total_series: list | None = None) -> None:
+    """收益率曲线：**每只一条细线 + 组合一条粗线**。
+
+    组合线是主角（深蓝、3px、带图例），单只线退成陪衬 —— 用户先看「我一共赚了多少」，
+    再往下追「是哪只在拉」。
+    """
     import altair as alt
     import pandas as pd
 
     rows = [{"月份": period, "产品": str(item.get("name")), "收益率": pct}
             for item in items for period, pct in (item.get("cum_series") or [])]
+    if total_series:
+        rows += [{"月份": period, "产品": "组合", "收益率": pct} for period, pct in total_series]
     if not rows:
         return
+
+    names = [str(item.get("name")) for item in items]
+    palette = ["#9FB4D8", "#7FB2A8", "#C9A66B", "#B48FA8", "#8FA8C9", "#A8BFA0"]
+    scale = alt.Scale(domain=names + ["组合"],
+                      range=[palette[i % len(palette)] for i in range(len(names))] + ["#0E3F8C"])
+
     frame = pd.DataFrame(rows)
     base = alt.Chart(frame).encode(
         x=alt.X("月份:N", title=None, axis=alt.Axis(labelAngle=-45, labelFontSize=10,
@@ -293,13 +306,16 @@ def _profit_chart(items: list[Mapping[str, Any]]) -> None:
                               format="+.0f")))
     zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
         color="#c4cbd5", strokeDash=[4, 4]).encode(y="y:Q")
-    line = base.mark_line(strokeWidth=2).encode(
-        color=alt.Color("产品:N", legend=alt.Legend(title=None, orient="top",
-                                                     labelFontSize=11, labelColor="#1a2230", symbolSize=90)),
+    line = base.mark_line().encode(
+        color=alt.Color("产品:N", scale=scale,
+                        legend=alt.Legend(title=None, orient="top",
+                                          labelFontSize=11, labelColor="#1a2230",
+                                          symbolSize=110)),
+        #: 组合线加粗，一眼能分出来
+        strokeWidth=alt.condition(alt.datum.产品 == "组合", alt.value(3), alt.value(1.4)),
         tooltip=[alt.Tooltip("月份:N"), alt.Tooltip("产品:N"),
                  alt.Tooltip("收益率:Q", format="+.2f")])
-    points = base.mark_point(size=26, filled=True).encode(color=alt.Color("产品:N", legend=None))
-    st.altair_chart((zero + line + points).properties(height=210).interactive(), width="stretch")
+    st.altair_chart((zero + line).properties(height=210).interactive(), width="stretch")
 
 
 def render_holdings(turn: Mapping[str, Any], *, ask: Callable[[str], None], key_prefix: str,
@@ -350,7 +366,7 @@ def render_holdings(turn: Mapping[str, Any], *, ask: Callable[[str], None], key_
         f"{html.escape(str(facts.get('total_amount_yuan')))} 元</div></div>"
         "</div>", unsafe_allow_html=True)
 
-    _profit_chart(items)
+    _profit_chart(items, facts.get('total_series'))
 
     #: 明细：一行一只，右侧赎回。数字靠右对齐，方便上下对比。
     st.markdown("<div style='font-size:.72rem;color:#94a3b8;margin:.35rem 0 .1rem;'>"

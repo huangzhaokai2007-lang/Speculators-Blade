@@ -64,3 +64,21 @@ def test_message_states_the_profit_in_plain_words(seeded: Path) -> None:
     message = wealth.list_holdings().message
     assert "累计收益" in message
     assert "元" in message
+
+
+def test_portfolio_series_ends_at_the_total(seeded: Path) -> None:
+    """组合曲线的末点必须等于顶部那个总收益率 —— 两条线各算各的就会自相矛盾。"""
+    facts = wealth.list_holdings().facts
+    series = facts["total_series"]
+    assert series, "组合曲线不能为空"
+    last_period, last_pct = series[-1]
+    assert last_period == facts["as_of"][:7]
+    total = float(facts["cum_pct_total"].replace("%", "").replace("+", ""))
+    assert abs(last_pct - total) < 0.01
+
+
+def test_portfolio_series_skips_months_before_the_first_purchase(seeded: Path) -> None:
+    """买入之前的月份不该出现在组合曲线上（那笔钱还没进来）。"""
+    facts = wealth.list_holdings().facts
+    earliest = min(item["purchase_date"][:7] for item in facts["items"])
+    assert facts["total_series"][0][0] >= earliest
