@@ -47,6 +47,8 @@ uv run streamlit run interfaces/web/app.py
 ```
 
 `--reset` 会重建本地演示数据，只在首次初始化或明确需要重置时使用。
+命令行初始化默认预绑6张预设模拟银行卡，与网页首次自动建库一致；评委打开「管卡」即可看到。
+需要空绑定状态的测试可显式使用 `uv run python -m data.seed --reset --no-bind-cards`。
 需要自然语言识别时，将 `.env.example` 复制为 `.env` 并填入自己的模型配置；没有模型配置时可用离线演示：
 
 ```bash
