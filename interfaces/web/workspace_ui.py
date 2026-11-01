@@ -123,6 +123,8 @@ def error(ask) -> None:
 
 
 def scope(executor, session: str, ask) -> None:
+    if current() == 'cards':
+        return
     context = executor.submit(scene_flow.context, session).result()
     request = context.get('read_request') or context.get('slots') or {}
     dates = [request[key] for key in ('date_from', 'date_to') if request.get(key)]
