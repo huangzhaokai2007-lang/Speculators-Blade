@@ -277,10 +277,10 @@ def _profit_color(value: object, *, on_dark: bool = False) -> str:
 
 def _profit_chart(items: list[Mapping[str, Any]],
                   total_series: list | None = None) -> None:
-    """收益率曲线：**每只一条细线 + 组合一条粗线**。
+    """收益率曲线：**每只一条彩线 + 组合一条深色粗线**。
 
-    组合线是主角（深蓝、3px、带图例），单只线退成陪衬 —— 用户先看「我一共赚了多少」，
-    再往下追「是哪只在拉」。
+    配色刻意用高饱和（橙/紫/绿/蓝/洋红），因为原来的粉灰在浅底上几乎看不见 ——
+    用户第一眼要能分出「哪条是哪只」。坐标轴、图例、标题一律深色，不再用默认灰。
     """
     import altair as alt
     import pandas as pd
@@ -293,29 +293,38 @@ def _profit_chart(items: list[Mapping[str, Any]],
         return
 
     names = [str(item.get("name")) for item in items]
-    palette = ["#9FB4D8", "#7FB2A8", "#C9A66B", "#B48FA8", "#8FA8C9", "#A8BFA0"]
+    #: 高饱和但互不混淆；组合线单独用深藏蓝压住全场
+    palette = ["#E8590C", "#7048E8", "#0CA678", "#1971C2", "#D6336C", "#C92A2A"]
     scale = alt.Scale(domain=names + ["组合"],
                       range=[palette[i % len(palette)] for i in range(len(names))] + ["#0E3F8C"])
 
     frame = pd.DataFrame(rows)
     base = alt.Chart(frame).encode(
-        x=alt.X("月份:N", title=None, axis=alt.Axis(labelAngle=-45, labelFontSize=10,
-                                                    tickCount=8, grid=False)),
+        x=alt.X("月份:N", title=None,
+                axis=alt.Axis(labelAngle=-45, labelFontSize=12, labelColor="#1a2230",
+                              labelPadding=4, tickCount=8, grid=False,
+                              domainColor="#9AA3AF", tickColor="#9AA3AF")),
         y=alt.Y("收益率:Q", title="累计收益率（%）",
-                axis=alt.Axis(labelFontSize=10, grid=True, gridColor="#EEF0F3",
-                              format="+.0f")))
+                axis=alt.Axis(labelFontSize=12, labelColor="#1a2230",
+                              titleColor="#1a2230", titleFontSize=12, titleFontWeight="bold",
+                              titlePadding=8, grid=True, gridColor="#E9EDF2",
+                              domainColor="#9AA3AF", tickColor="#9AA3AF", format="+.0f")))
     zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
-        color="#c4cbd5", strokeDash=[4, 4]).encode(y="y:Q")
+        color="#8B97A8", strokeWidth=1.2, strokeDash=[5, 4]).encode(y="y:Q")
     line = base.mark_line().encode(
         color=alt.Color("产品:N", scale=scale,
-                        legend=alt.Legend(title=None, orient="top",
-                                          labelFontSize=11, labelColor="#1a2230",
-                                          symbolSize=110)),
-        #: 组合线加粗，一眼能分出来
-        strokeWidth=alt.condition(alt.datum.产品 == "组合", alt.value(3), alt.value(1.4)),
+                        legend=alt.Legend(title=None, orient="top", columns=4,
+                                          labelFontSize=12, labelColor="#1a2230",
+                                          symbolSize=160, symbolStrokeWidth=3,
+                                          labelFontWeight="bold")),
+        #: 组合线更粗，单只线也提到 2.2（原来 1.4 太细）
+        strokeWidth=alt.condition(alt.datum.产品 == "组合", alt.value(3.6), alt.value(2.2)),
         tooltip=[alt.Tooltip("月份:N"), alt.Tooltip("产品:N"),
                  alt.Tooltip("收益率:Q", format="+.2f")])
-    st.altair_chart((zero + line).properties(height=210).interactive(), width="stretch")
+    points = base.mark_point(size=42, filled=True).encode(
+        color=alt.Color("产品:N", scale=scale, legend=None))
+    st.altair_chart((zero + line + points).properties(height=320).interactive(),
+                    width="stretch")
 
 
 def render_holdings(turn: Mapping[str, Any], *, ask: Callable[[str], None], key_prefix: str,
