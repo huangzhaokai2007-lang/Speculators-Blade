@@ -71,8 +71,7 @@ OFFLINE_RULES: tuple[tuple[tuple[str, ...], str, dict], ...] = (
     #: 口径实测：aa_collect 只认 payee_ids/amount/amounts（amounts 必须是"王五 100、赵六 200"
     #: 这类文本，给 list 会被 str 化逐字解析报"「[」不在名单里"）；gift_plan 六槽全必填
     #: （GIFT_REQUIRED 含 platform/address/order_no），date 要 ISO 且不早于基准日。
-    (("AA", "aa"), "aa_collect",
-     {"payee_ids": ["王五", "赵六"], "amounts": "王五 100、赵六 200"}),
+    (("AA", "aa", "群收款"), "aa_collect", {}),
     (("送礼", "礼物"), "gift_plan",
      {"contact": "张小美", "date": "2026-11-01", "budget": 500,
       "platform": "京东", "address": "上海市浦东新区张江路 100 号",
@@ -141,6 +140,32 @@ def scheduled_slots_from_text(text: str) -> dict:
             filled["repeat"] = word
             break
     return filled
+
+
+#: 群收款名单（2026-11-01 用户实测：「向李四发起 aa 收款」名单却是王五/赵六）。
+#: 原来规则把演示名单**写死**在 `OFFLINE_RULES` 里，用户点了谁都不影响结果。
+_AA_NAMES = re.compile(
+    r"(?:向|跟|和|找|拉上?)\s*([\u4e00-\u9fa5A-Za-z、,，和及与\s]{2,24}?)\s*"
+    r"(?:发起|发|做|来|一起|共同)?\s*(?:AA|aa|群收款|收款)")
+_AA_SPLIT = re.compile(r"[、,，和及与\s]+")
+_AA_DEMO_NAMES = ("王五", "赵六")          # 完全没点名时退回的演示名单（界面不至于是空的）
+
+
+def aa_slots_from_text(text: str) -> dict:
+    """从话里抽群收款参与人（`payee_ids` 传**姓名**，`_shape_aa` 会解析成 id）。"""
+    raw = _strip_date_context(str(text or ""))
+    found = _AA_NAMES.search(raw)
+    names: list[str] = []
+    if found:
+        names = [name for name in _AA_SPLIT.split(found.group(1))
+                 if name and name not in ("我", "自己", "我们")]
+    if not names:                             # 没点名 → 退回演示名单（与原来行为一致）
+        names = list(_AA_DEMO_NAMES)
+    out = {"payee_ids": names}
+    money = re.search(r"(\d+(?:\.\d+)?)\s*(?:元|块钱|块)", raw)   # 说了总额就一起带上，省一轮追问
+    if money:
+        out["amount"] = float(money.group(1))
+    return out
 
 
 #: 理财申购/赎回的离线口径（2026-11-01 用户实测：「点订购没反应」）。
@@ -492,6 +517,8 @@ def offline_verdict(text: str) -> tuple[str, dict]:
                     and _TRANSFER_VERB.search(_strip_date_context(text))):
                 return "transfer_scheduled", scheduled_slots_from_text(text)
             filled = dict(slots)
+            if intent == "aa_collect":                     # F09：名单从话里抽（原来是写死的演示名单）
+                filled.update(aa_slots_from_text(text))
             if intent in ("bill_analysis", "anomaly_check", "bill_report"):
                 #: 2026-10-27 验收口径：问「异常分析」却**没说哪个月**时，不许静默按锚点当月算
                 #: （「有没有异常」→ 悄悄答了本月，用户以为查的是全部）。只对 anomaly_check 生效：
