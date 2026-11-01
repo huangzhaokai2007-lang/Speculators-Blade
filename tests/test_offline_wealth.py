@@ -49,3 +49,23 @@ def test_orchestrator_routes_order_button_to_wealth_buy(seeded) -> None:
         turn = orchestrator.handle("买 黄金 ETF 联接 10000 元", session_id="offline-wealth-1")
     assert turn.intent == "wealth_buy"
     assert turn.intent != "out_of_scope"
+
+
+#: 2026-11-01 用户实测：点侧边栏「我的理财」却出的是**推荐**页。
+#: 场景按钮发的原话就是「我买了哪些理财」——含「理财」二字，被泛理财规则抢走。
+@pytest.mark.parametrize("text", ["我买了哪些理财", "我的理财持仓", "我持有多少理财"])
+def test_holdings_sentences_are_not_recommendations(text: str) -> None:
+    intent, _ = offline_verdict(text)
+    assert intent == "wealth_holdings", f"「{text}」被判成了 {intent}"
+
+
+def test_recommendation_still_wins_for_recommend_words() -> None:
+    assert offline_verdict("推荐理财产品")[0] == "wealth_recommend"
+
+
+def test_orchestrator_renders_holdings_for_my_wealth_scene(seeded) -> None:
+    with offline_llm():
+        turn = orchestrator.handle("我买了哪些理财", session_id="offline-wealth-2")
+    assert turn.intent == "wealth_holdings"
+    assert "持有" in turn.reply                       # 持仓回执，不是推荐列表
+
