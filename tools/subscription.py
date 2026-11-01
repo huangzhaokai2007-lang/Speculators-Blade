@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import calendar
 import logging
 import threading
 import uuid
@@ -238,6 +239,33 @@ def _overdue_facts(item: dict, status: str) -> dict:
     return {"days_overdue": days, "overdue_cn": overdue_cn(days)}
 
 
+def _add_months(when: date, months: int) -> date:
+    """按自然月顺延（日号越界时收到月末，如 1-31 + 1 月 → 2-28/29）。"""
+    year = when.year + (when.month - 1 + months) // 12
+    month = (when.month - 1 + months) % 12 + 1
+    day = min(when.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _rolled_next_charge(stored: object, cycle: object, today: date) -> str:
+    """「下次扣费」若已过期，按周期顺延到**今天（含）之后**。
+
+    合成库是静态快照：`data/seed.py` 里写的扣费日是生成时算好的，搁上几周就全成了过去时
+    （2026-11-01 实测：列表里 4 条在订全是 9/10 月的日期，反倒没有一条「即将扣费」）。
+    读取时按周期顺延，库不动、快照也不烂；认不出的周期/日期原样返回，不猜。
+    """
+    try:
+        when = date.fromisoformat(str(stored))
+    except ValueError:
+        return str(stored)
+    step = {"monthly": 1, "yearly": 12}.get(str(cycle), 0)
+    if not step or when >= today:
+        return str(stored)
+    while when < today:
+        when = _add_months(when, step)
+    return when.isoformat()
+
+
 def list_subscriptions(status: str = "active") -> ToolResult:
     """T10 订阅列表（L0）。data: `items[{id,merchant,amount,cycle,next_charge_date}]`（字段冻结）。
 
@@ -254,6 +282,11 @@ def list_subscriptions(status: str = "active") -> ToolResult:
         return _fail(exc.code, exc.message)
     except ValueError as exc:
         return _dao_reject(exc)
+    if status == "active":                          # 在订的「下次扣费」顺延到今天之后（见 _rolled_next_charge）
+        today = _now().date()
+        subs = [dict(sub) for sub in subs]
+        for sub in subs:
+            sub["next_charge_date"] = _rolled_next_charge(sub["next_charge_date"], sub["cycle"], today)
     items = [{key: sub[key] for key in ("id", "merchant", "amount", "cycle", "next_charge_date")}
              for sub in subs]
     data = ListSubscriptionsData(items=[SubscriptionItem(**item) for item in items])
